@@ -1,0 +1,267 @@
+---
+title: "ML_Assignment_3"
+author: "Gavin Jones"
+date: "2026-10-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(e1071)
+bank <- read.csv("~/Downloads/UniversalBank.csv")
+
+names(bank)
+# The Three Columns Needed
+bank <- bank[, c("Personal.Loan", "Online", "CreditCard")]
+# Shorten Column Names 
+names(bank) <- c("Loan", "Online", "CC")
+# Count Missing Values
+colSums(is.na(bank))
+# Treat Loan as a Category (0=No, 1=Yes)
+bank$Loan <- factor(bank$Loan, levels = c(0, 1))
+# Treat Online as a Category (0=No, 1=Yes)
+bank$Online <- factor(bank$Online, levels = c(0, 1))
+# Treat CC as a Category (0=No, 1=Yes)
+bank$CC <- factor(bank$CC, levels = c(0, 1))
+# Display # of Customers
+nrow(bank)
+# Count Customers who Declined vs Accepted the Loan
+table(bank$Loan)
+```
+## 0 missing values for Loan, Online, or CC
+## 5000 total rows in dataset
+## 4520 customers declined the loan, while 480(9.6%) accepted this loan
+
+```{r}
+# Random Split that is repeatable
+set.seed(123)
+
+# Randomly select 60% of customer rows for training
+# Replace = FALSE only lets all customers appear 1x
+training_rows <- sample(1:nrow(bank), size = 0.60 * nrow(bank), replace = FALSE)
+
+# Create the training dataset from selected rows
+train <- bank[training_rows, ]
+
+# Create the validation dataset from all other rows
+validation <- bank[-training_rows, ]
+
+# Display the size of each dataset
+c(Training = nrow(train), Validation = nrow(validation))
+```
+## 3000 customers for training and 2000 customers for validation
+
+```{r}
+## Part A. Three Way Pivot Table : 
+
+# Count customers for every combination of CC, Loan, and Online.
+counts <- table(CC = train$CC,
+                Loan = train$Loan,
+                Online = train$Online)
+
+# Display CC and Loan as rows, with Online as columns.
+ftable(counts,
+       row.vars = c("CC", "Loan"),
+       col.vars = "Online")
+```
+# 1 means that the customer either has a bank credit card, accepted the loan, or used online banking
+ 
+```{r}
+## Part B. Conditional Probability : 
+
+# Count customers with CC = 1 and Online = 1 who accepted the loan.
+accepted_both <- counts["1", "1", "1"]
+
+# Count all customers with CC = 1 and Online = 1.
+total_both <- sum(counts["1", , "1"])
+
+# Calculate the acceptance probability for this customer group.
+p_direct <- accepted_both / total_both
+
+# Display the numerator, denominator, and probability.
+c(Accepted = accepted_both,
+  Total = total_both,
+  Probability = p_direct)
+```
+# Counts all customers with a yes for all 3 variables
+# Counts the CreditCard and Online customers including both loan categories now
+# Adds the accepted and declined counts for the group
+# Divides the accepted number by the total number
+## 57 of 532 accepted giving a 10.71% probability of acceptance
+
+```{r}
+## Part C creating Two Pivot Tables
+
+# Count loan Responses for each Online Category
+loan_online <- table(Loan = train$Loan, Online = train$Online)
+
+# Display Loan Online Table
+loan_online
+
+# Count Loan Responses for Credit Card Caegory
+loan_cc <- table(Loan = train$Loan, CC = train$CC)
+
+# Display the Loan Credit card Table 
+loan_cc
+```
+## The prior gives us the results for Loan Responses in the Online or not category and the Loan responses for Credit Card or not category
+## We see here that 90% of Online banking customers declined the Loan, and 91.8% of non-online customers declined the loan as well
+## We also see that 91.2% of non credit-card users declined the Loan, and 89.7% of the Credit-Card users declined the Loan. 
+
+```{r}
+## Part D - Calculating probabilities
+# i. Credit Card Holders Among Loan Acceptors
+p_cc_given_loan1 <- loan_cc["1", "1"] / sum(loan_cc["1", ])
+
+# ii. Online banking users among all loan acceptors
+p_online_given_loan1 <- loan_online["1", "1"] / sum(loan_online["1", ])
+
+# iii. Loan acceptors among all training customers
+p_loan1 <- sum(train$Loan == "1") / nrow(train)
+
+# iv. Credit Card holders among loan decliners
+p_cc_given_loan0 <- loan_cc["0", "1"] / sum(loan_cc["0", ])
+
+# v. Online banking users among loan decliners
+p_online_given_loan0 <- loan_online["0", "1"] / sum(loan_online["0", ])
+
+# vi. Loan decliners among all training customers
+p_loan0 <- sum(train$Loan == "0") / nrow(train)
+```
+## i. The Probability of Crddit Card given a Loan Acceptance is 32.7%
+## ii. The Probability of Online Given a Loan Acceptance is 64.4%
+## iii. The Probability of Loan Acceptors among all training customers is 9.3%
+## iv. The Probability of Credit Card holder among loan decliners is 29.1%
+## v. The Probability of Online Given a Loan Decliner is 59.5%
+## vi. ## The Probability of Loan Decliner among all training customers is 90.7%
+
+```{r}
+# Part E - Naive Bayes Probability
+## Naive Bayes assumes that Credit Card and Online are independent within Loan category, so we can multiply their conditional probabilities
+# Calculate the score for accepting the loan
+score1 <- p_cc_given_loan1 * p_online_given_loan1 * p_loan1
+
+# Calculate the score for declining the loan 
+score0 <- p_cc_given_loan0 * p_online_given_loan0 * p_loan0
+
+# Convert the acceptance into a probability 
+p_nb_manual <- score1 / (score1 + score0)
+
+# Display the Acceptance Probability
+p_nb_manual
+```
+## This formula gives us the total proportion of acceptors, and the total proportion of non acceptors
+## It then divided the total acceptors by the total acceptors and non acceptors to give us a final probability of (11.1%)
+
+```{r}
+# Part F - Comparing the Value with the Pivot Table (Which is more accurate)
+
+# Display the Direct and Naive Bayes Probabilities Together
+c(Direct_pivot = p_direct, Naive_Bayes = p_nb_manual)
+
+# Calculate the Naive Bayes Probability minus direct probability
+difference <- p_nb_manual - p_direct
+
+# Display the difference
+difference
+```
+# Direct Calculated Probability is 10.7%
+# Naive Bayes Calculated Probability is 11.1%
+# The direct estimate matches the training observations well with these conclusions
+
+```{r}
+# Part G - 
+
+# Train the model to predict Loan using Credit Card and online
+# Model that predicts Loan from Credit Card and Online
+nb_model <- naiveBayes(Loan ~ CC + Online, data = train, laplace = 0)
+
+# Display the models class counts and conditional probabilities
+nb_model
+
+# Return the probabilities for each training customer
+predicted_train_probabilities <- predict(nb_model, train, type = "raw")
+
+# Display the first six customers predicted probabilities 
+head(predicted_train_probabilities)
+
+# Find customers with a bank credit card who use online banking as well
+matching_rows <- which(train$CC == "1" & train$Online == "1")
+
+# Display the probabilities for the first matching customer
+predicted_train_probabilities[matching_rows[1], ]
+
+# Store that customers probability of accepting the loan
+p_nb_model <- predicted_train_probabilities[matching_rows[1], "1"]
+
+# Compare the model probability with the manual calculation from Part E
+c(Manual = p_nb_manual, Model = p_nb_model)
+
+# Obtain probabilities for the validation customers
+predicted_validation_probabilities <- predict(nb_model, validation, type = "raw")
+
+# Display the first six rows
+head(predicted_validation_probabilities)
+```
+# The model estimates an 11.1% probability of loan acceptance for customers with a bank credit card and use online banking. 
+# A-priori predicts a 9.3% loan acceptance rate from the training set
+# Among loan acceptors, 32.7% of them had a bank credit card, while 29.1% of non acceptors did. Customers with credit cards are more likely to accept. 
+# Within loan acceptors, 64.4% of them used online banking, and 59.5% declined the loan. Online banking was also used slightly more often with acceptors
+# The manual and model calculation both returned an acceptance probability of 11.1%. 
+
+# Part G - 
+# A-priori [P(Loan = 0) = 90.7% / P(Loan = 1) = 9.3%]
+# CC Table P(CC = 1 | Loan = 0) = 29.1% / P(CC = 1 | Loan = 1) = 32.7%
+# Online Table P(Online = 1 | Loan = 0) = 59.5% / P(Online = 1 | Loan = 1) = 64.4%
+# The model uses the Prior Probabilities of Loan = 0 (90.8%), and Loan = 1 (9.3%) along with the probabilities of having a credit card and using online banking within each Loan group. For a customer with a Credit Card and Online banking, the model predicts an 88.9% probability of not accepting, and an 11.1% acceptance probability. This matches the manual naive bayes comparison from Part E.
+
+```{r probability-comparison}
+# Combine the three acceptance probabilities.
+probabilities <- c(p_loan1, p_direct, p_nb_manual)
+
+# Convert probabilities into percentages.
+percentages <- probabilities * 100
+
+# Draw the bars and save their positions for adding labels.
+bar_positions <- barplot(percentages,
+                         names.arg = c("Overall", "Direct pivot", "Naive Bayes"),
+                         col = c("gray70", "steelblue", "yellow"),
+                         ylim = c(0, max(percentages) + 5),
+                         main = "Estimated Loan Acceptance",
+                         ylab = "Acceptance probability (%)")
+
+# Add the percentage above each bar.
+text(x = bar_positions,
+     y = percentages,
+     labels = paste0(round(percentages, 2), "%"),
+     pos = 3)
+```
+# This chart compares the training accpetance loan rate (9.27%), and the direct pivor and Naive Bayes estimated loan acceptance rate for customers with a bank credit card and who use online banking as well. Naive Bayes was 0.35 percentage points higher than the pivot, but shows close approximation to acceptance
+
+```{r predictor-comparison}
+# Put the conditional probabilities into a two-row table.
+predictor_percentages <- rbind(
+  Acceptors = c(p_cc_given_loan1, p_online_given_loan1),
+  Non_acceptors = c(p_cc_given_loan0, p_online_given_loan0)
+) * 100
+
+# Name the two predictor columns.
+colnames(predictor_percentages) <- c("Bank credit card", "Online banking")
+
+# Draw acceptor and non-acceptor bars next to each other.
+barplot(predictor_percentages,
+        beside = TRUE,
+        col = c("steelblue", "gray70"),
+        ylim = c(0, 100),
+        main = "Banking Services by Loan Outcome",
+        ylab = "Customers within each Loan group (%)",
+        legend.text = c("Loan acceptors", "Loan non-acceptors"),
+        args.legend = list(x = "topleft", bty = "n"))
+```
+# Bank Credit Card and Online Banking were more common among loan acceptors than non-acceptors given these graphs, as we can see the slightly larger blue plots than grey. 
+
+
+
